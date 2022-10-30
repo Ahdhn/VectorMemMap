@@ -1,9 +1,32 @@
+#pragma once
+
+#include <cuda.h>
 #include <stdio.h>
 #include <stdlib.h>
-//********************** CUDA HandelError
-#ifndef _CUDA_ERROR_
-#define _CUDA_ERROR_
-inline void HandleError(cudaError_t err, const char* file, int line)
+
+#define ROUND_UP_TO_NEXT_MULTIPLE(num, mult) (DIVIDE_UP(num, mult) * mult)
+
+// used for integer rounding
+#define DIVIDE_UP(num, divisor) (num + divisor - 1) / (divisor)
+
+
+static inline void checkDrvError(CUresult    res,
+                                 const char* tok,
+                                 const char* file,
+                                 unsigned    line)
+{
+    if (res != CUDA_SUCCESS) {
+        const char* errStr = NULL;
+        (void)cuGetErrorString(res, &errStr);
+        std::cerr << file << ':' << line << ' ' << tok << "failed ("
+                  << (unsigned)res << "): " << errStr << std::endl;
+        abort();
+    }
+}
+#define CHECK_DRV(x) checkDrvError(x, #x, __FILE__, __LINE__);
+
+
+static inline void HandleError(cudaError_t err, const char* file, int line)
 {
     // Error handling micro, wrap it around function whenever possible
     if (err != cudaSuccess) {
@@ -12,16 +35,8 @@ inline void HandleError(cudaError_t err, const char* file, int line)
     }
 }
 #define CUDA_ERROR(err) (HandleError(err, __FILE__, __LINE__))
-#endif
-//******************************************************************************
 
 
-//********************** DIVIDE_UP
-// used for integer rounding
-#define DIVIDE_UP(num, divisor) (num + divisor - 1) / (divisor)
-//******************************************************************************
-
-//********************** CUDATimer
 class CUDATimer
 {
    public:
@@ -56,4 +71,3 @@ class CUDATimer
     cudaEvent_t  m_start, m_stop;
     cudaStream_t m_stream;
 };
-//******************************************************************************
