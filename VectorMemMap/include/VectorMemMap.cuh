@@ -1,7 +1,120 @@
 #pragma once
 #include <cuda.h>
+#include <vector>
 
 #include "helper.h"
+
+
+class MemMapAlloc
+{
+    CUdeviceptr         d_p;
+    CUmemAllocationProp prop;
+    CUmemAccessDesc     access_desc;
+    struct Range
+    {
+        CUdeviceptr start;
+        size_t      size;
+    };
+    std::vector<Range>                        va_ranges;
+    std::vector<CUmemGenericAllocationHandle> handles;
+    std::vector<size_t>                       handle_sizes;
+    size_t                                    alloc_size;
+    size_t                                    reserve_size;
+    size_t                                    chunk_size;
+
+    MemMapAlloc(CUcontext context)
+        : d_p(0ULL),
+          prop(),
+          handles(),
+          alloc_size(0ULL),
+          reserve_size(0ULL),
+          chunk_size(0ULL)
+    {
+        CUdevice  device;
+        CUcontext prev_ctx;
+
+        CHECK_DRV(cuCtxGetCurrent(&prev_ctx));
+        CHECK_DRV(cuCtxGetDevice(&device));
+        CHECK_DRV(cuCtxSetCurrent(prev_ctx));
+
+        prop.type                = CU_MEM_ALLOCATION_TYPE_PINNED;
+        prop.location.type       = CU_MEM_LOCATION_TYPE_DEVICE;
+        prop.location.id         = (int)device;
+        prop.win32HandleMetaData = NULL;
+
+        access_desc.location = prop.location;
+        access_desc.flags    = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+
+        CHECK_DRV(cuMemGetAllocationGranularity(
+            &chunk_size, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+    }
+
+    ~MemMapAlloc()
+    {
+        if (d_p != 0ULL) {
+            CHECK_DRV(cuMemUnmap(d_p, alloc_size));
+            for (size_t i = 0; i < va_ranges.size(); ++i) {
+                CHECK_DRV(
+                    cuMemAddressFree(va_ranges[i].start, va_ranges[i].size));
+            }
+            for (size_t i = 0ULL; i < handles.size(); ++i) {
+                CHECK_DRV(cuMemRelease(handles[i]));
+            }
+        }
+    }
+
+    CUdeviceptr get_pointer() const
+    {
+        return d_p;
+    }
+
+    size_t get_size() const
+    {
+        return alloc_size;
+    }
+
+    /**
+     * @brief reserve some extra space in order to speedup grow()
+     */
+    void reserve(size_t new_size)
+    {
+        if (new_size <= reserve_size) {
+            return;
+        }
+
+        CUdeviceptr new_ptr = 0ULL;
+
+        const size_t aligned_size =
+            chunk_size * DIVIDE_UP(new_size, chunk_size);
+
+        // try to reserve an address just after what we already have reserved
+        CUresult status = cuMemAddressReserve(&new_ptr,
+                                              (aligned_size - reserve_size),
+                                              0ULL,
+                                              d_p + reserve_size,
+                                              0ULL);
+        if (status != CUDA_SUCCESS || (new_ptr != d_p + reserve_size)) {
+            if (new_ptr != 0ULL) {
+                //avoid memory leaks 
+                CHECK_DRV(
+                    cuMemAddressFree(new_ptr, (aligned_size - reserve_size)));
+            }
+
+            // slow path: try to find a new address reservation
+            status = cuMemAddressReserve(&new_ptr, aligned_size, 0ULL, 0U, 0);
+
+        }
+    }
+
+    /**
+     * @brief actually commits new_size (num bytes) of additional memory
+     */
+    void grow(size_t new_size)
+    {
+    }
+};
+
+
 template <typename T>
 struct VectorMemMap
 {
@@ -42,7 +155,6 @@ struct VectorMemMap
 
     CUresult reserve(size_t new_size)
     {
-        
     }
 
     void free()
