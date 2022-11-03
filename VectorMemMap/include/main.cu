@@ -5,6 +5,8 @@
 
 #include "helper.h"
 
+#include "VectorMemMap.cuh"
+
 __global__ void exec_kernel()
 {
     printf("\n I am thread %d from exec_kernel\n", threadIdx.x);
@@ -12,6 +14,9 @@ __global__ void exec_kernel()
 
 TEST(Test, exe)
 {
+    CUcontext    ctx;
+    VectorMemMap vector(ctx);
+
     exec_kernel<<<1, 1>>>();
     auto err = cudaDeviceSynchronize();
     EXPECT_EQ(err, cudaSuccess);    
