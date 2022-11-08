@@ -4,7 +4,7 @@
 
 #include "helper.h"
 
-
+template <typename T>
 struct VectorMemMap
 {
     CUdeviceptr         d_p;
@@ -63,9 +63,9 @@ struct VectorMemMap
         }
     }
 
-    CUdeviceptr get_pointer() const
+    T* get_pointer() const
     {
-        return d_p;
+        return reinterpret_cast<T*>(d_p);
     }
 
     size_t get_size() const
@@ -73,10 +73,22 @@ struct VectorMemMap
         return alloc_size;
     }
 
+
+    CUresult reserve(size_t num)
+    {
+        return reserve_impl(num * sizeof(T));
+    }
+
+    CUresult grow(size_t num)
+    {
+        return grow_impl(num * sizeof(T));
+    }
+
+   private:
     /**
      * @brief reserve some extra space in order to speedup grow()
      */
-    CUresult reserve(size_t new_size)
+    CUresult reserve_impl(size_t new_size)
     {
         CUresult status = CUDA_SUCCESS;
         if (new_size <= reserve_size) {
@@ -166,7 +178,7 @@ struct VectorMemMap
     /**
      * @brief actually commits new_size (num bytes) of additional memory
      */
-    CUresult grow(size_t new_size)
+    CUresult grow_impl(size_t new_size)
     {
         CUresult status = CUDA_SUCCESS;
 
